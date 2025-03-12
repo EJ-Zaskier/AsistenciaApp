@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
+import { StatusBar } from 'react-native';
 
 export default function Layout() {
   const router = useRouter();
@@ -12,29 +13,11 @@ export default function Layout() {
   return (
     <Stack
       screenOptions={{
-        headerShown: !isLoginScreen,
-        headerTitle: '',
-        headerStyle: {
-          backgroundColor: isLoginScreen ? 'transparent' : '#7697a0',
-        },
-        headerShadowVisible: false,
-        headerLeft: () => {
-          if (isLoginScreen) {
-            return null;
-          }
-          return (
-            <TouchableOpacity 
-              onPress={() => router.back()}
-              style={{ marginLeft: 8 }}
-            >
-              <MaterialIcons name="arrow-back" size={24} color="white" />
-            </TouchableOpacity>
-          );
-        },
+        headerShown: false, // Hide the header
         contentStyle: { 
-          backgroundColor: isLoginScreen ? 'transparent' : '#7697a0' 
+          backgroundColor: 'transparent' // Make the background transparent
         },
       }}
     />
   );
-  }
+}

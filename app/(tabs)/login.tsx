@@ -1,5 +1,4 @@
-"use client"
-import { useState } from "react"
+import { useState } from "react";
 import {
   View,
   TextInput,
@@ -10,65 +9,88 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-} from "react-native"
-import { useRouter } from "expo-router"
-import { login } from "../src/services/api" // Importa la función login
+} from "react-native";
+import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // Importa AsyncStorage
+import { login } from "../src/services/api"; // Importa la función login
 
 const LoginScreen = () => {
-  const router = useRouter()
-  const [matricula, setMatricula] = useState("")
-  const [password, setPassword] = useState("")
-  const [mensaje, setMensaje] = useState("")
-  const [loading, setLoading] = useState(false)
+  const router = useRouter();
+  const [matricula, setMatricula] = useState("");
+  const [password, setPassword] = useState("");
+  const [mensaje, setMensaje] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!matricula || !password) {
-      setMensaje("Por favor, ingresa tu matrícula y contraseña")
-      return
+      setMensaje("Por favor, ingresa tu matrícula y contraseña");
+      return;
     }
-
-    setLoading(true)
-    setMensaje("")
-
+  
+    setLoading(true);
+    setMensaje("");
+  
     try {
-      console.log("Enviando solicitud de login...")
-      const result = await login(matricula, password)
-      console.log("Respuesta del servidor:", result)
-
+      console.log("Enviando solicitud de login...");
+      const result = await login(matricula, password);
+      console.log("Respuesta del servidor:", result);
+  
       if (result.error) {
         // Maneja errores específicos del backend
         if (result.error.includes("Matrícula incorrecta")) {
-          setMensaje("Matrícula incorrecta")
+          setMensaje("Matrícula incorrecta");
         } else if (result.error.includes("Contraseña incorrecta")) {
-          setMensaje("Contraseña incorrecta")
+          setMensaje("Contraseña incorrecta");
         } else {
-          setMensaje("Error: " + result.error)
+          setMensaje("Error: " + result.error);
         }
       } else {
         // Inicio de sesión exitoso
-        setMensaje("Inicio de sesión exitoso")
+        setMensaje("Inicio de sesión exitoso");
+  
+        // Guardar el token en AsyncStorage
+        await AsyncStorage.setItem("token", result.token);
+  
+        // Obtener los datos completos del usuario usando el token
+        const userResponse = await fetch("http://192.168.56.1:5000/api/auth/user", {
+          headers: {
+            Authorization: `Bearer ${result.token}`,
+          },
+        });
+  
+        if (!userResponse.ok) {
+          throw new Error("Error al obtener los datos del usuario");
+        }
+  
+        const userData = await userResponse.json();
+        console.log("Datos del usuario recibidos:", userData);
+  
+        // Guardar los datos del usuario en AsyncStorage
+        await AsyncStorage.setItem("user", JSON.stringify(userData));
+  
+        // Redirigir según el rol
         if (result.rol === "alumno") {
-          router.push("/inicio")
+          router.push("/inicio");
         } else if (result.rol === "maestro") {
-          router.push("/inicioMaestro")
+          router.push("/inicioMaestro");
         } else {
-          setMensaje("Error: Rol de usuario desconocido")
+          setMensaje("Error: Rol de usuario desconocido");
         }
       }
     } catch (error) {
-      console.error("Error en el login:", error)
-      setMensaje("Error: No se pudo conectar con el servidor")
+      console.error("Error en el login:", error);
+      setMensaje("Error: No se pudo conectar con el servidor");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.container}>
       <View style={styles.content}>
         <View style={styles.logoContainer}>
           <Image
-            // source={require('./assets/logo.png')}
+          //  source={require('../assets/logo.png')} // Asegúrate de que la ruta sea correcta
             style={styles.logo}
             resizeMode="contain"
           />
@@ -117,8 +139,8 @@ const LoginScreen = () => {
         </View>
       </View>
     </KeyboardAvoidingView>
-  )
-}
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -131,13 +153,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   logoContainer: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     marginBottom: 40,
   },
   logo: {
-    width: 60,
-    height: 60,
-    marginBottom: 10,
+    width: 40,
+    height: 40,
+    marginRight: 10,
   },
   logoText: {
     fontSize: 24,
@@ -149,6 +173,11 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     padding: 20,
     width: "100%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   welcomeText: {
     fontSize: 24,
@@ -171,6 +200,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 10,
     paddingHorizontal: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.22,
+    shadowRadius: 2.22,
+    elevation: 3,
   },
   input: {
     flex: 1,
@@ -185,6 +219,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   buttonText: {
     color: "#fff",
@@ -205,7 +244,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#e8f5e9",
     color: "#2e7d32",
   },
-})
+});
 
-export default LoginScreen
-
+export default LoginScreen;
