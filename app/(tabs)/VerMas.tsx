@@ -1,20 +1,32 @@
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Modal } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from "react-native"
 import { FontAwesome, MaterialIcons, Ionicons } from "@expo/vector-icons"
 import { router, useLocalSearchParams } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import * as FileSystem from "expo-file-system"
 import * as Sharing from "expo-sharing"
+import * as Print from "expo-print"
+import * as IntentLauncher from 'expo-intent-launcher'
+import * as MediaLibrary from 'expo-media-library'
+// import * as Permissions from 'expo-permissions'
+import { Platform } from 'react-native'
 
 type AttendanceType = "asistencia" | "falta" | "justificada" | "retardo"
 
 interface Alumno {
-  id_grupo: string | undefined
   _id: string
   nombre_completo: string
   matricula: string
-  grupo: string
+  id_grupo: string
   carrera: string
+}
+
+interface Grupo {
+  _id: string
+  grupo: string
+  descripcion: string
+  id_carrera: string
+  alumnos: string[]
 }
 
 interface Asistencia {
@@ -24,15 +36,15 @@ interface Asistencia {
   id_salon: string
   id_horario: string
   id_alumno: string
-  id_materia: string // Agregar esta línea
+  id_materia: string
 }
 
 interface Materia {
   _id: string
   nombre: string
-  grado: string
+  id_grupos: string[]
   id_carrera: string
-  alumnos: Alumno[] // Agregar esta línea
+  alumnos: string[]
 }
 
 interface User {
@@ -42,8 +54,9 @@ interface User {
 }
 
 export default function MateriaAsistenciasScreen() {
-  const { materiaId } = useLocalSearchParams<{ materiaId: string }>()
+  const { groupId } = useLocalSearchParams<{ groupId: string }>()
   const [user, setUser] = useState<User | null>(null)
+  const [grupo, setGrupo] = useState<Grupo | null>(null)
   const [materia, setMateria] = useState<Materia | null>(null)
   const [materias, setMaterias] = useState<Materia[]>([])
   const [alumnos, setAlumnos] = useState<Alumno[]>([])
@@ -54,7 +67,6 @@ export default function MateriaAsistenciasScreen() {
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [visibleDayRange, setVisibleDayRange] = useState({ start: 1, end: 10 })
-  const [showStatsModal, setShowStatsModal] = useState(false)
 
   useEffect(() => {
     fetchUserData()
@@ -66,7 +78,13 @@ export default function MateriaAsistenciasScreen() {
       if (userData) {
         const parsedUser = JSON.parse(userData)
         setUser(parsedUser)
-        await fetchMaterias(parsedUser._id)
+
+        // Primero obtener información del grupo
+        if (groupId) {
+          await fetchGrupoInfo(groupId)
+        } else {
+          setError("No se especificó un grupo")
+        }
       } else {
         router.push("/login")
       }
@@ -78,50 +96,67 @@ export default function MateriaAsistenciasScreen() {
     }
   }
 
-  const fetchMaterias = async (userId: string) => {
+  const fetchGrupoInfo = async (grupoId: string) => {
     try {
-      const response = await fetch(`http://192.168.56.1:5000/api/materias?profesor=${userId}`)
+      const response = await fetch(`http://3.142.210.221:5000/api/grupos?id=${groupId}`)
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+
+      const data = await response.json()
+      setGrupo(data)
+
+      // Después de obtener el grupo, obtener las materias relacionadas
+      await fetchMateriasForGrupo(grupoId)
+
+      // También obtener los alumnos del grupo
+      await fetchAlumnosForGrupo(grupoId)
+    } catch (error) {
+      console.error("Error al cargar información del grupo:", error)
+      setError("Error al cargar información del grupo")
+    }
+  }
+
+  const fetchMateriasForGrupo = async (grupoId: string) => {
+    try {
+      // Obtener materias que tienen este grupo en su array id_grupos
+      const response = await fetch(`http://3.142.210.221:5000/api/materias?grupo=${grupoId}`)
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
       const data = await response.json()
       setMaterias(data)
 
-      // Si hay un materiaId en los parámetros, seleccionar esa materia
-      // Si no, seleccionar la primera materia
-      const selectedMateria = materiaId ? data.find((m: Materia) => m._id === materiaId) : data[0]
-
-      if (selectedMateria) {
-        setMateria(selectedMateria)
-        setAlumnos(selectedMateria.alumnos) // Establecer los alumnos de la materia seleccionada
-        await fetchAttendances(selectedMateria._id)
+      // Si hay materias, seleccionar la primera por defecto
+      if (data.length > 0) {
+        setMateria(data[0])
+        await fetchAttendances(data[0]._id, grupoId)
       }
     } catch (error) {
-      console.error("Error fetching materias:", error)
+      console.error("Error al cargar las materias:", error)
       setError("Error al cargar las materias")
     }
   }
 
-  const fetchAlumnos = async (materiaId: string) => {
+  const fetchAlumnosForGrupo = async (grupoId: string) => {
     try {
-      const response = await fetch(`http://192.168.56.1:5000/api/alumnos?materia=${materiaId}`)
+      const response = await fetch(`http://3.142.210.221:5000/api/alumnos?grupo=${grupoId}`)
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
       const data = await response.json()
-      console.log("Alumnos obtenidos:", data)
-
-      // Filtrar alumnos por id_grupo de la materia seleccionada
-      const filteredAlumnos = data.filter((alumno: Alumno) => alumno.id_grupo === materia?.id_carrera)
-
-      setAlumnos(filteredAlumnos)
+      setAlumnos(data)
     } catch (error) {
-      console.error("Error fetching alumnos:", error)
+      console.error("Error al cargar los alumnos:", error)
       setError("Error al cargar los alumnos")
     }
   }
 
-  const fetchAttendances = async (materiaId: string) => {
+  const fetchAttendances = async (materiaId: string, grupoId: string) => {
     try {
-      const response = await fetch(`http://192.168.56.1:5000/api/Asistencia?materia=${materiaId}`)
+      // Obtener asistencias filtradas por materia y mes/año
+      const fechaInicio = new Date(selectedYear, selectedMonth, 1).toISOString().split("T")[0]
+      const fechaFin = new Date(selectedYear, selectedMonth + 1, 0).toISOString().split("T")[0]
+
+      const response = await fetch(
+        `http://3.142.210.221:5000/api/Asistencia?materia=${materiaId}&fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`,
+      )
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
       const data = await response.json()
@@ -148,7 +183,7 @@ export default function MateriaAsistenciasScreen() {
 
       setAttendances(attendancesByStudent)
     } catch (error) {
-      console.error("Error fetching attendances:", error)
+      console.error("Error al cargar las asistencias:", error)
       setError("Error al cargar las asistencias")
     }
   }
@@ -157,9 +192,7 @@ export default function MateriaAsistenciasScreen() {
     const selectedMateria = materias.find((m) => m._id === newMateriaId)
     if (selectedMateria) {
       setMateria(selectedMateria)
-      setAlumnos(selectedMateria.alumnos) // Establecer los alumnos de la materia seleccionada
-      await fetchAttendances(newMateriaId)
-      router.setParams({ materiaId: newMateriaId })
+      await fetchAttendances(newMateriaId, groupId as string)
     }
   }
 
@@ -183,6 +216,11 @@ export default function MateriaAsistenciasScreen() {
     setSelectedYear(newYear)
     // Resetear el rango visible de días al cambiar de mes
     setVisibleDayRange({ start: 1, end: 10 })
+
+    // Actualizar asistencias para el nuevo mes
+    if (materia) {
+      fetchAttendances(materia._id, groupId as string)
+    }
   }
 
   const getAttendanceColor = (percentage: number) => {
@@ -292,92 +330,170 @@ export default function MateriaAsistenciasScreen() {
     "Diciembre",
   ]
 
-  // Exportar a Excel (CSV)
-  const exportToExcel = async () => {
+  // Modificar la función exportToPDF para usar la nueva implementación HTML
+  const exportToPDF = async () => {
     try {
       setExporting(true)
 
-      // Crear encabezados
-      let csvContent = `Alumno,${monthDays.join(",")},Porcentaje\n`
-
-      // Agregar datos de cada alumno
-      alumnos.forEach((alumno) => {
-        const percentage = calculateAttendancePercentage(alumno._id)
-        let row = `"${alumno.nombre_completo}",`
-
-        // Agregar estado de asistencia para cada día
-        monthDays.forEach((day) => {
-          const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-          const attendance = attendances[alumno._id]?.find((a) => {
-            const aDate = new Date(a.fecha)
-            return aDate.getDate() === day && aDate.getMonth() === selectedMonth && aDate.getFullYear() === selectedYear
-          })
-
-          if (attendance) {
-            switch (attendance.estado) {
-              case "asistencia":
-                row += "A,"
-                break
-              case "falta":
-                row += "F,"
-                break
-              case "justificada":
-                row += "J,"
-                break
-              case "retardo":
-                row += "R,"
-                break
-              default:
-                row += "-,"
-            }
-          } else {
-            row += "-,"
-          }
-        })
-
-        // Agregar porcentaje
-        row += `${percentage}%\n`
-        csvContent += row
-      })
-
-      // Guardar archivo
-      const fileName = `asistencias_${materia?.nombre}_${monthNames[selectedMonth]}_${selectedYear}.csv`
-      const fileUri = `${FileSystem.documentDirectory}${fileName}`
-
-      await FileSystem.writeAsStringAsync(fileUri, csvContent)
-
-      // Compartir archivo
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri)
-      } else {
-        Alert.alert("Error", "El compartir archivos no está disponible en este dispositivo")
+      // Verificar que tenemos un ID de materia válido
+      if (!materia?._id) {
+        Alert.alert("Error", "No se pudo identificar la materia para exportar")
+        setExporting(false)
+        return
       }
+
+      // Generar HTML para el reporte
+      const htmlContent = generateReportHTML()
+
+      // Imprimir el contenido HTML
+      await Print.printAsync({ html: htmlContent })
+
+      // Mostrar mensaje de éxito
+      Alert.alert("Éxito", "Se ha generado un reporte HTML. En una implementación completa, esto sería un PDF.")
     } catch (error) {
-      console.error("Error exporting to Excel:", error)
-      Alert.alert("Error", "No se pudo exportar a Excel")
+      console.error("Error exportando reporte:", error)
+      Alert.alert("Error", "No se pudo exportar el reporte. Verifica la conexión con el servidor.")
     } finally {
       setExporting(false)
     }
   }
 
-  // Exportar a PDF
-  const exportToPDF = async () => {
-    try {
-      setExporting(true)
+  // Función para generar el contenido HTML del reporte
+  const generateReportHTML = () => {
+    // Generar encabezados de los días
+    const daysHeaders = monthDays.map(day => `
+      <th>${day}</th>
+    `).join('')
 
-      // En un entorno real, aquí se generaría un PDF
-      // Para esta demo, mostraremos un mensaje
-      Alert.alert(
-        "Exportar a PDF",
-        "Esta funcionalidad requiere una biblioteca adicional como 'react-native-html-to-pdf' o un servicio de backend para generar PDFs",
-        [{ text: "OK" }],
-      )
-    } catch (error) {
-      console.error("Error exporting to PDF:", error)
-      Alert.alert("Error", "No se pudo exportar a PDF")
-    } finally {
-      setExporting(false)
-    }
+    // Generar filas con asistencias
+    let tableRows = ''
+    alumnos.forEach((alumno) => {
+      const percentage = calculateAttendancePercentage(alumno._id)
+      const percentageColor = getAttendanceColor(percentage)
+
+      // Generar celdas de asistencia para cada día
+      const attendanceCells = monthDays.map(day => {
+        const dateObj = new Date(selectedYear, selectedMonth, day)
+        const dateStr = dateObj.toISOString().split('T')[0]
+        const attendance = attendances[alumno._id]?.find(a => {
+          const aDate = new Date(a.fecha)
+          return aDate.getDate() === day && 
+                 aDate.getMonth() === selectedMonth && 
+                 aDate.getFullYear() === selectedYear
+        })
+
+        // Determinar el símbolo y color basado en el estado
+        let symbol = '⚪' // Por defecto
+        let color = '#ccc'
+        
+        if (attendance) {
+          switch(attendance.estado) {
+            case 'asistencia':
+              symbol = '✓'
+              color = '#4CAF50'
+              break
+            case 'falta':
+              symbol = '✗'
+              color = '#F44336'
+              break
+            case 'justificada':
+              symbol = 'J'
+              color = '#FF9800'
+              break
+            case 'retardo':
+              symbol = 'R'
+              color = '#FFC107'
+              break
+          }
+        }
+
+        return `<td style="text-align: center; color: ${color}; font-weight: bold;">${symbol}</td>`
+      }).join('')
+
+      tableRows += `
+        <tr>
+          <td>${alumno.nombre_completo}</td>
+          ${attendanceCells}
+          <td style="background-color: ${percentageColor}; color: white; text-align: center;">${percentage}%</td>
+        </tr>
+      `
+    })
+
+    // Generar HTML completo
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Reporte de Asistencias</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          h1, h2 { color: #2c3e50; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .date { text-align: right; color: #7f8c8d; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+          th, td { 
+            padding: 10px; 
+            text-align: left; 
+            border: 1px solid #ddd;
+            font-size: 12px;
+          }
+          th { 
+            background-color: #f2f2f2;
+            text-align: center;
+          }
+          .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #7f8c8d; }
+          .legend {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+          }
+          .legend-item {
+            display: inline-block;
+            margin-right: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Reporte de Asistencias</h1>
+          <h2>${materia?.nombre || "Materia"}</h2>
+          <h3>Grupo: ${grupo?.grupo || ""} - ${grupo?.descripcion || ""}</h3>
+          <h3>Periodo: ${monthNames[selectedMonth]} ${selectedYear}</h3>
+        </div>
+        
+        <div class="date">
+          <p>Fecha del reporte: ${new Date().toLocaleDateString()}</p>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item">✓ : Asistencia</div>
+          <div class="legend-item">✗ : Falta</div>
+          <div class="legend-item">J : Justificada</div>
+          <div class="legend-item">R : Retardo</div>
+          <div class="legend-item">⚪ : Sin registro</div>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Alumno</th>
+              ${daysHeaders}
+              <th>%</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        
+        <div class="footer">
+          <p>Este reporte fue generado automáticamente por el sistema FACEGUARD.</p>
+        </div>
+      </body>
+      </html>
+    `
   }
 
   // Función para editar el estado de asistencia
@@ -439,7 +555,7 @@ export default function MateriaAsistenciasScreen() {
         return aDateStr === dateStr
       })
 
-      let url = "http://192.168.56.1:5000/api/Asistencia"
+      let url = "http://3.142.210.221:5000/api/Asistencia"
       let method = "POST"
       let body: any = {
         fecha: dateStr,
@@ -449,7 +565,7 @@ export default function MateriaAsistenciasScreen() {
       }
 
       if (existingAttendance) {
-        url = `http://192.168.56.1:5000/api/Asistencia/${existingAttendance._id}`
+        url = `http://3.142.210.221:5000/api/Asistencia/${existingAttendance._id}`
         method = "PUT"
         body = {
           estado: status,
@@ -493,8 +609,8 @@ export default function MateriaAsistenciasScreen() {
             _id: responseData._id,
             fecha: dateStr,
             estado: status,
-            id_salon: body.id_salon,
-            id_horario: body.id_horario,
+            id_salon: body.id_salon || "",
+            id_horario: body.id_horario || "",
             id_alumno: studentId,
             id_materia: materia?._id || "",
           })
@@ -503,7 +619,9 @@ export default function MateriaAsistenciasScreen() {
       })
 
       // Forzar la actualización de la pantalla
-      await fetchAttendances(materia?._id || "")
+      if (materia) {
+        await fetchAttendances(materia._id, groupId as string)
+      }
 
       Alert.alert("Éxito", "Asistencia actualizada correctamente")
     } catch (error) {
@@ -517,11 +635,6 @@ export default function MateriaAsistenciasScreen() {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    // Este efecto se ejecutará cada vez que cambie el estado de attendances
-    // Puedes agregar cualquier lógica adicional aquí si es necesario
-  }, [attendances])
 
   // Función para navegar entre los días visibles
   const navigateDays = (direction: "prev" | "next") => {
@@ -543,19 +656,17 @@ export default function MateriaAsistenciasScreen() {
     }
   }
 
-  // Navegar a estadísticas
-  const navigateToStats = (type: "grupo" | "alumno") => {
-    setShowStatsModal(false)
+  // Navegar a estadísticas directamente por grupo
+  const navigateToStats = () => {
+    // Guardar el tipo de estadística como "asistencias"
+    AsyncStorage.setItem("statsType", "asistencias")
 
-    // Guardar el tipo de estadística seleccionado
-    AsyncStorage.setItem("statsType", type)
-
-    // Navegar a la pantalla de estadísticas
+    // Navegar directamente a la pantalla de estadísticas con tipo "grupo"
     router.push({
       pathname: "/Estadisticas",
       params: {
         materiaId: materia?._id,
-        type: type,
+        type: "grupo",
       },
     })
   }
@@ -581,17 +692,15 @@ export default function MateriaAsistenciasScreen() {
         </TouchableOpacity>
         <View style={styles.titleContainer}>
           <Text style={styles.titleText}>Asistencias</Text>
-          <Text style={styles.subtitleText}>{user?.nombre_completo}</Text>
+          <Text style={styles.subtitleText}>
+            {grupo?.grupo} - {grupo?.descripcion}
+          </Text>
         </View>
 
         {/* Botones de exportación y estadísticas */}
         <View style={styles.exportButtons}>
-          <TouchableOpacity style={styles.exportButton} onPress={() => setShowStatsModal(true)}>
+          <TouchableOpacity style={styles.exportButton} onPress={navigateToStats}>
             <MaterialIcons name="bar-chart" size={20} color="white" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.exportButton} onPress={exportToExcel} disabled={exporting}>
-            <FontAwesome name="file-excel-o" size={20} color="white" />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.exportButton} onPress={exportToPDF} disabled={exporting}>
@@ -691,47 +800,53 @@ export default function MateriaAsistenciasScreen() {
                 </View>
 
                 {/* Filas de alumnos */}
-                {alumnos.map((alumno) => {
-                  const percentage = calculateAttendancePercentage(alumno._id)
+                {alumnos.length > 0 ? (
+                  alumnos.map((alumno) => {
+                    const percentage = calculateAttendancePercentage(alumno._id)
 
-                  return (
-                    <View key={alumno._id} style={styles.studentRow}>
-                      {/* Nombre del alumno */}
-                      <View style={styles.studentNameCell}>
-                        <Text style={styles.studentName}>{alumno.nombre_completo}</Text>
-                      </View>
+                    return (
+                      <View key={alumno._id} style={styles.studentRow}>
+                        {/* Nombre del alumno */}
+                        <View style={styles.studentNameCell}>
+                          <Text style={styles.studentName}>{alumno.nombre_completo}</Text>
+                        </View>
 
-                      {/* Celdas de asistencia por día */}
-                      {visibleDays.map((day) => {
-                        const dateObj = new Date(selectedYear, selectedMonth, day)
-                        const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-                        const attendance = attendances[alumno._id]?.find((a) => {
-                          const aDate = new Date(a.fecha)
+                        {/* Celdas de asistencia por día */}
+                        {visibleDays.map((day) => {
+                          const dateObj = new Date(selectedYear, selectedMonth, day)
+                          const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+                          const attendance = attendances[alumno._id]?.find((a) => {
+                            const aDate = new Date(a.fecha)
+                            return (
+                              aDate.getDate() === day &&
+                              aDate.getMonth() === selectedMonth &&
+                              aDate.getFullYear() === selectedYear
+                            )
+                          })
+
                           return (
-                            aDate.getDate() === day &&
-                            aDate.getMonth() === selectedMonth &&
-                            aDate.getFullYear() === selectedYear
+                            <TouchableOpacity
+                              key={day}
+                              style={styles.attendanceCell}
+                              onPress={() => handleAttendanceEdit(alumno._id, day, attendance?.estado || null)}
+                            >
+                              {getAttendanceIcon(attendance?.estado || null, dateObj)}
+                            </TouchableOpacity>
                           )
-                        })
+                        })}
 
-                        return (
-                          <TouchableOpacity
-                            key={day}
-                            style={styles.attendanceCell}
-                            onPress={() => handleAttendanceEdit(alumno._id, day, attendance?.estado || null)}
-                          >
-                            {getAttendanceIcon(attendance?.estado || null, dateObj)}
-                          </TouchableOpacity>
-                        )
-                      })}
-
-                      {/* Celda de porcentaje */}
-                      <View style={[styles.percentageCell, { backgroundColor: getAttendanceColor(percentage) }]}>
-                        <Text style={styles.percentageText}>{percentage}%</Text>
+                        {/* Celda de porcentaje */}
+                        <View style={[styles.percentageCell, { backgroundColor: getAttendanceColor(percentage) }]}>
+                          <Text style={styles.percentageText}>{percentage}%</Text>
+                        </View>
                       </View>
-                    </View>
-                  )
-                })}
+                    )
+                  })
+                ) : (
+                  <View style={styles.noDataRow}>
+                    <Text style={styles.noDataText}>No hay alumnos registrados en este grupo</Text>
+                  </View>
+                )}
               </View>
             </ScrollView>
 
@@ -762,34 +877,6 @@ export default function MateriaAsistenciasScreen() {
           </View>
         )}
       </ScrollView>
-
-      {/* Modal de Estadísticas */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showStatsModal}
-        onRequestClose={() => setShowStatsModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Selecciona tipo de estadísticas</Text>
-
-            <TouchableOpacity style={styles.modalOption} onPress={() => navigateToStats("grupo")}>
-              <MaterialIcons name="group" size={24} color="#7697a0" />
-              <Text style={styles.modalOptionText}>Estadísticas por Grupo</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.modalOption} onPress={() => navigateToStats("alumno")}>
-              <MaterialIcons name="person" size={24} color="#7697a0" />
-              <Text style={styles.modalOptionText}>Estadísticas por Alumno</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setShowStatsModal(false)}>
-              <Text style={styles.modalCloseButtonText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   )
 }
@@ -1030,6 +1117,10 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontFamily: "Montserrat",
   },
+  noDataRow: {
+    padding: 20,
+    alignItems: "center",
+  },
   noDataText: {
     color: "#bbb",
     fontSize: 14,
@@ -1073,53 +1164,5 @@ const styles = StyleSheet.create({
     color: "#2c3e50",
     fontFamily: "Montserrat",
     textAlign: "center",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    backgroundColor: "white",
-    borderRadius: 15,
-    padding: 20,
-    width: "80%",
-    alignItems: "center",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#2c3e50",
-    marginBottom: 20,
-    fontFamily: "Montserrat",
-  },
-  modalOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f0f0f0",
-    padding: 15,
-    borderRadius: 10,
-    width: "100%",
-    marginBottom: 10,
-  },
-  modalOptionText: {
-    marginLeft: 10,
-    fontSize: 16,
-    color: "#2c3e50",
-    fontFamily: "Montserrat",
-  },
-  modalCloseButton: {
-    marginTop: 10,
-    padding: 12,
-    backgroundColor: "#7697a0",
-    borderRadius: 10,
-    width: "100%",
-    alignItems: "center",
-  },
-  modalCloseButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontFamily: "Montserrat",
   },
 })

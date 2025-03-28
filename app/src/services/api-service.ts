@@ -31,7 +31,7 @@ export interface Asistencia {
 }
 
 // URL base de la API
-const API_BASE_URL = "http://192.168.56.1:5000/api"
+const API_BASE_URL = "http://3.142.210.221:5000/api"
 
 // Obtener todos los grupos
 export const fetchGrupos = async (): Promise<Grupo[]> => {

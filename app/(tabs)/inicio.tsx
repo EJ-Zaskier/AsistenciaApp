@@ -25,7 +25,7 @@ interface Asistencia {
 interface Subject {
   _id: string
   nombre: string
-  grado: string
+  grupo: string
   id_carrera: string
   asistencias: Asistencia[]
 }
@@ -46,7 +46,7 @@ export default function AttendanceScreen() {
 
   useEffect(() => {
     fetchUserData()
-    const socket = io("http://192.168.56.1:5000")
+    const socket = io("http://3.142.210.221:5000")
     socket.on("attendanceUpdate", (updatedAttendance: Asistencia) => {
       setSubjects((prevSubjects) => {
         return prevSubjects.map((subject) => {
@@ -87,7 +87,7 @@ export default function AttendanceScreen() {
 
   const fetchSubjects = async (userId: string) => {
     try {
-      const response = await fetch(`http://192.168.56.1:5000/api/materias?alumno=${userId}`)
+      const response = await fetch(`http://3.142.210.221:5000/api/materias?alumno=${userId}`)
 
       if (!response.ok) {
         throw new Error(`Error HTTP! estado: ${response.status}`)
@@ -116,7 +116,7 @@ export default function AttendanceScreen() {
 
   const fetchAsistencias = async (subjectId: string) => {
     try {
-      const response = await fetch(`http://192.168.56.1:5000/api/Asistencia?materia=${subjectId}`)
+      const response = await fetch(`http://3.142.210.221:5000/api/Asistencia?materia=${subjectId}`)
 
       if (!response.ok) {
         throw new Error(`Error HTTP! estado: ${response.status}`)
@@ -331,7 +331,7 @@ export default function AttendanceScreen() {
                 <Text style={styles.subjectName}>{subject.nombre}</Text>
               </View>
 
-              <Text style={styles.scheduleText}>{`Grado: ${subject.grado}`}</Text>
+              <Text style={styles.scheduleText}>{`Grado: ${subject.grupo}`}</Text>
 
               <MonthlyAttendance subject={subject} />
             </View>

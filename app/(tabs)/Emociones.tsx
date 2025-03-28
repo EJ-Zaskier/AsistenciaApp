@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, GestureResponderEvent } from "react-native"
 import { FontAwesome, MaterialIcons, Ionicons } from "@expo/vector-icons"
 import { router, useLocalSearchParams } from "expo-router"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import * as FileSystem from "expo-file-system"
+import * as Sharing from "expo-sharing"
+import { getGrupos, getAlumnosGrupo, getEmociones } from "../src/services/api"
 
 type TipoEmocion = "feliz" | "triste" | "enojado" | "ansioso" | "tranquilo"
 
@@ -64,10 +67,7 @@ export default function EmocionesGrupoScreen() {
 
   const fetchGrupos = async () => {
     try {
-      const response = await fetch("http://192.168.56.1:5000/api/grupos")
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-
-      const data = await response.json()
+      const data = await getGrupos()
       setGrupos(data)
 
       // Si hay un grupoId en los parámetros, seleccionar ese grupo
@@ -87,10 +87,7 @@ export default function EmocionesGrupoScreen() {
 
   const fetchEstudiantes = async (grupoId: string) => {
     try {
-      const response = await fetch(`http://192.168.56.1:5000/api/alumnos?grupo=${grupoId}`)
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-
-      const data = await response.json()
+      const data = await getAlumnosGrupo(grupoId)
       setEstudiantes(data)
     } catch (error) {
       console.error("Error fetching estudiantes:", error)
@@ -103,26 +100,27 @@ export default function EmocionesGrupoScreen() {
       const fechaInicio = getStartOfWeek(selectedWeek)
       const fechaFin = getEndOfWeek(selectedWeek)
 
-      const response = await fetch(
-        `http://192.168.56.1:5000/api/emociones?grupo=${grupoId}&fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`,
-      )
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      try {
+        const data = await getEmociones(grupoId, fechaInicio, fechaFin)
 
-      const data = await response.json()
+        const emocionesMap: { [key: string]: { [key: string]: TipoEmocion } } = {}
 
-      const emocionesMap: { [key: string]: { [key: string]: TipoEmocion } } = {}
+        data.forEach((emocion: any) => {
+          if (!emocionesMap[emocion.id_alumno]) {
+            emocionesMap[emocion.id_alumno] = {}
+          }
+          emocionesMap[emocion.id_alumno][emocion.fecha] = emocion.tipo_emocion
+        })
 
-      data.forEach((emocion: any) => {
-        if (!emocionesMap[emocion.id_alumno]) {
-          emocionesMap[emocion.id_alumno] = {}
+        setEmociones(emocionesMap)
+
+        // Si no hay datos reales, usar datos de ejemplo solo para demostración
+        if (Object.keys(emocionesMap).length === 0) {
+          setEmociones(generarDatosEjemplo())
         }
-        emocionesMap[emocion.id_alumno][emocion.fecha] = emocion.tipo_emocion
-      })
-
-      setEmociones(emocionesMap)
-
-      // Si no hay datos reales, usar datos de ejemplo solo para demostración
-      if (Object.keys(emocionesMap).length === 0) {
+      } catch (error) {
+        // Si hay un error en la API, usar datos de ejemplo
+        console.warn("Usando datos de ejemplo debido a un error en la API:", error)
         setEmociones(generarDatosEjemplo())
       }
     } catch (error) {
@@ -229,45 +227,191 @@ export default function EmocionesGrupoScreen() {
     }
   }
 
-  // Exportar a PDF
+  // Exportar a PDF (implementación mejorada usando HTML)
   const exportToPDF = async () => {
     try {
       setExporting(true)
 
-      // En un entorno real, aquí se generaría un PDF
-      // Para esta demo, mostraremos un mensaje
-      Alert.alert(
-        "Exportar a PDF",
-        "Esta funcionalidad requiere una biblioteca adicional como 'react-native-html-to-pdf' o un servicio de backend para generar PDFs.",
-        [{ text: "OK" }],
-      )
+      if (!grupo) {
+        Alert.alert("Error", "No hay un grupo seleccionado para exportar")
+        setExporting(false)
+        return
+      }
 
-      // Ejemplo de cómo sería la llamada a la API
-      /*
+      // Obtener fechas de la semana
       const fechaInicio = getStartOfWeek(selectedWeek)
       const fechaFin = getEndOfWeek(selectedWeek)
-      
-      const response = await fetch(
-        `http://192.168.56.1:5000/api/emociones/export/pdf?grupo=${grupo?._id}&semana=${fechaInicio}`,
-        { method: 'GET' }
-      )
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+
+      try {
+        // Generar HTML para el reporte
+        const htmlContent = await generateReportHTML(grupo._id, fechaInicio, fechaFin)
+
+        // Guardar el HTML como archivo temporal
+        const fileName = `emociones_${grupo.nombre || "grupo"}_${fechaInicio}_${fechaFin}.html`
+        const htmlFile = FileSystem.documentDirectory + fileName
+        await FileSystem.writeAsStringAsync(htmlFile, htmlContent)
+
+        // Compartir el archivo HTML
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(htmlFile, {
+            mimeType: "text/html",
+            dialogTitle: "Reporte de Emociones",
+          })
+        } else {
+          Alert.alert("Error", "El compartir archivos no está disponible en este dispositivo")
+        }
+      } catch (error) {
+        console.error("Error generando reporte:", error)
+        Alert.alert("Error", "No se pudo generar el reporte. Verifica la conexión con el servidor.")
       }
-      
-      const data = await response.json()
-      console.log('Respuesta de exportación:', data)
-      */
     } catch (error) {
-      console.error("Error exporting to PDF:", error)
-      Alert.alert("Error", "No se pudo exportar a PDF")
+      console.error("Error exportando reporte:", error)
+      Alert.alert("Error", "No se pudo exportar el reporte.")
     } finally {
       setExporting(false)
     }
   }
 
+  // Función para generar el HTML del reporte
+  const generateReportHTML = async (grupoId: string, fechaInicio: string, fechaFin: string) => {
+    try {
+      // En un entorno real, llamaríamos a la API para generar el HTML
+      // Para esta implementación, generaremos el HTML localmente
+
+      // Mapear emociones por alumno y fecha
+      const emocionesMap = emociones
+
+      // Generar filas de la tabla
+      let tablasAlumnos = ""
+      estudiantes.forEach((estudiante) => {
+        const emocionesAlumno = emocionesMap[estudiante._id] || {}
+
+        // Contar emociones
+        const conteoEmociones = {
+          feliz: 0,
+          triste: 0,
+          enojado: 0,
+          ansioso: 0,
+          tranquilo: 0,
+        }
+
+        Object.values(emocionesAlumno).forEach((emocion) => {
+          if (conteoEmociones[emocion as keyof typeof conteoEmociones] !== undefined) {
+            conteoEmociones[emocion as keyof typeof conteoEmociones]++
+          }
+        })
+
+        // Calcular emoción predominante
+        let emocionPredominante: TipoEmocion = "tranquilo"
+        let maxConteo = 0
+
+        Object.entries(conteoEmociones).forEach(([emocion, conteo]) => {
+          if (conteo > maxConteo) {
+            maxConteo = conteo
+            emocionPredominante = emocion as TipoEmocion
+          }
+        })
+
+        const { emoji, color } = getEmocionEmoji(emocionPredominante)
+
+        tablasAlumnos += `
+          <div class="alumno-card">
+            <h3>${estudiante.nombre_completo}</h3>
+            <p>Matrícula: ${estudiante.matricula}</p>
+            
+            <table>
+              <tr>
+                <th>Emoción</th>
+                <th>Conteo</th>
+                <th>Porcentaje</th>
+              </tr>
+              <tr>
+                <td><span class="emoji" style="color: #4CAF50;">😊</span> Feliz</td>
+                <td>${conteoEmociones.feliz}</td>
+                <td>${Math.round((conteoEmociones.feliz / 5) * 100)}%</td>
+              </tr>
+              <tr>
+                <td><span class="emoji" style="color: #2196F3;">😢</span> Triste</td>
+                <td>${conteoEmociones.triste}</td>
+                <td>${Math.round((conteoEmociones.triste / 5) * 100)}%</td>
+              </tr>
+              <tr>
+                <td><span class="emoji" style="color: #F44336;">😠</span> Enojado</td>
+                <td>${conteoEmociones.enojado}</td>
+                <td>${Math.round((conteoEmociones.enojado / 5) * 100)}%</td>
+              </tr>
+              <tr>
+                <td><span class="emoji" style="color: #FF9800;">😰</span> Ansioso</td>
+                <td>${conteoEmociones.ansioso}</td>
+                <td>${Math.round((conteoEmociones.ansioso / 5) * 100)}%</td>
+              </tr>
+              <tr>
+                <td><span class="emoji" style="color: #9C27B0;">😌</span> Tranquilo</td>
+                <td>${conteoEmociones.tranquilo}</td>
+                <td>${Math.round((conteoEmociones.tranquilo / 5) * 100)}%</td>
+              </tr>
+            </table>
+            
+            <p>Emoción predominante: <strong><span style="color: ${color}">${emoji}</span> ${emocionPredominante.charAt(0).toUpperCase() + emocionPredominante.slice(1)}</strong></p>
+          </div>
+        `
+      })
+
+      // Generar HTML completo
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Reporte de Emociones</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1, h2 { color: #2c3e50; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .date { text-align: right; color: #7f8c8d; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background-color: #f2f2f2; }
+            .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #7f8c8d; }
+            .emoji { font-size: 18px; }
+            .alumno-card { 
+              background-color: #f9f9f9; 
+              border-radius: 10px; 
+              padding: 15px; 
+              margin-bottom: 20px;
+              box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Reporte de Emociones</h1>
+            <h2>${grupo?.nombre || "Grupo"}</h2>
+            <h3>Periodo: ${fechaInicio} al ${fechaFin}</h3>
+          </div>
+          
+          <div class="date">
+            <p>Fecha del reporte: ${new Date().toLocaleDateString()}</p>
+          </div>
+          
+          <h2>Resumen de Emociones por Alumno</h2>
+          
+          ${tablasAlumnos}
+          
+          <div class="footer">
+            <p>Este reporte fue generado automáticamente por el sistema FACEGUARD.</p>
+          </div>
+        </body>
+        </html>
+      `
+    } catch (error) {
+      console.error("Error generando HTML:", error)
+      throw error
+    }
+  }
+
   const handleNotificaciones = () => {
+    setSelectedTab("notificaciones")
     router.push("/notificaciones")
   }
 
@@ -323,7 +467,11 @@ export default function EmocionesGrupoScreen() {
         {/* Botón de exportación */}
         <View style={styles.exportButtons}>
           <TouchableOpacity style={styles.exportButton} onPress={exportToPDF} disabled={exporting}>
-            <FontAwesome name="file-pdf-o" size={20} color="white" />
+            {exporting ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <FontAwesome name="file-pdf-o" size={20} color="white" />
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -439,19 +587,24 @@ export default function EmocionesGrupoScreen() {
         )}
       </ScrollView>
 
-      <View style={styles.bottomNav}>
+      <View
+  style={bottomNavStyles.bottomNav}>
         <TouchableOpacity
-          style={[styles.navButton, selectedTab === "emociones" && styles.navButtonActive]}
+          style={[bottomNavStyles.navButton, selectedTab === "emociones" && bottomNavStyles.navButtonActive]}
           onPress={handleEstadisticas}
         >
           <MaterialIcons name="assessment" size={24} color={selectedTab === "emociones" ? "#b6cce4" : "#fff"} />
-          <Text style={[styles.navText, selectedTab === "emociones" && styles.navTextActive]}>Estadísticas</Text>
+          <Text style={[bottomNavStyles.navText, selectedTab === "emociones" && bottomNavStyles.navTextActive]}>Estadísticas</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navButton} onPress={handleNotificaciones}>
-          <Ionicons name="notifications" size={24} color="#fff" />
-          <Text style={styles.navText}>Notificaciones</Text>
-        </TouchableOpacity>
+        <TouchableOpacity
+  style={[bottomNavStyles.navButton, selectedTab === "notificaciones" && bottomNavStyles.navButtonActive]}
+  onPress =
+    { handleNotificaciones } >
+    <Ionicons name="notifications" size={24} color={selectedTab === "notificaciones" ? "#b6cce4" : "#fff"} /> <Text
+  style={[bottomNavStyles.navText, selectedTab === "notificaciones" && bottomNavStyles.navTextActive]}>Notificaciones
+  </Text>
+  </TouchableOpacity>
       </View>
     </View>
   )
@@ -691,6 +844,16 @@ const styles = StyleSheet.create({
     color: "#4A7079",
     fontFamily: "Montserrat",
   },
+  errorText: {
+    color: "red",
+    fontSize: 16,
+    textAlign: "center",
+    marginTop: 20,
+    fontFamily: "Montserrat",
+  },
+})
+
+const bottomNavStyles = StyleSheet.create({
   bottomNav: {
     flexDirection: "row",
     backgroundColor: "#5f7d85",
@@ -714,11 +877,5 @@ const styles = StyleSheet.create({
   navTextActive: {
     color: "#b6cce4",
   },
-  errorText: {
-    color: "red",
-    fontSize: 16,
-    textAlign: "center",
-    marginTop: 20,
-    fontFamily: "Montserrat",
-  },
 })
+
