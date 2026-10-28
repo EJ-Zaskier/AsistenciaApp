@@ -1,50 +1,33 @@
-# Welcome to your Expo app 👋
+# AsistenciaApp: control de asistencias escolares
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+App móvil para que maestros y alumnos lleven el control de asistencias, justificantes y el seguimiento emocional del grupo. Forma parte del proyecto **Face Guard** de la Universidad Tecnológica de Tehuacán, que identifica a los alumnos por reconocimiento facial desde el backend.
 
-## Get started
+*React Native · Expo · TypeScript · Socket.io · Expo Print / Sharing · React Native Chart Kit*
 
-1. Install dependencies
+## Funciones
 
-   ```bash
-   npm install
-   ```
+- **Inicio de sesión** con vistas distintas para alumno y maestro.
+- **Grupos y alumnos:** el maestro consulta sus grupos y la lista de cada uno.
+- **Calendario** de asistencias.
+- **Justificantes:** el alumno envía su justificante y el maestro lo revisa.
+- **Estadísticas** con gráficas de barras y de pastel que se actualizan en tiempo real con **Socket.io**.
+- **Reportes en PDF** que se pueden compartir desde el teléfono.
+- **Registro de emociones** del grupo y **notificaciones**.
 
-2. Start the app
+## Estructura
 
-   ```bash
-    npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```text
+app/(tabs)/        pantallas (login, inicio, inicioMaestro, Calendario, Estadisticas, justificantes...)
+app/src/services/  cliente de la API con manejo de errores y timeout
+app/src/config/    URL de la API para desarrollo y producción
+components/        componentes reutilizables con tema claro/oscuro
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Ejecutar
 
-## Learn more
+```bash
+npm install
+npx expo start
+```
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Abre la app en Expo Go o en un emulador de Android. La URL del backend se configura en `app/src/config/config.js`.
